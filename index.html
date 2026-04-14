@@ -1,0 +1,590 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>eFleet · Monitor de Diesel S10</title>
+<meta name="description" content="Monitor diário do preço do Diesel S10 no Brasil — comparação por plataforma (eFleet, TruckPag, Gasola, ANP) e por estado.">
+<meta name="theme-color" content="#0b1120">
+<meta name="robots" content="noindex, nofollow">
+<!-- Open Graph -->
+<meta property="og:title" content="eFleet · Monitor de Diesel S10">
+<meta property="og:description" content="Painel interno eFleet · preços diários do Diesel S10 por plataforma e por estado.">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="eFleet">
+<!-- Favicon (SVG inline, sem dependência de arquivo externo) -->
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='20' fill='%230b1120'/%3E%3Ctext x='50' y='68' font-family='Arial,sans-serif' font-size='62' font-weight='800' text-anchor='middle' fill='%23ffcb3a'%3Ee%3C/text%3E%3C/svg%3E">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #0b1120;
+    --panel: #111a2e;
+    --panel-2: #172340;
+    --border: #1f2d4d;
+    --text: #e6edf7;
+    --text-dim: #8fa0bf;
+    --accent: #ffcb3a;
+    --up: #ff6b6b;
+    --down: #4ade80;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.5;
+  }
+  header {
+    padding: 28px 32px 12px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+  header h1 {
+    margin: 0;
+    font-size: 22px;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+  }
+  header h1 span { color: var(--accent); }
+  header .sub {
+    font-size: 13px;
+    color: var(--text-dim);
+    margin-top: 2px;
+  }
+  .status {
+    font-size: 12px;
+    color: var(--text-dim);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .status .dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: #4ade80;
+    box-shadow: 0 0 8px #4ade80;
+  }
+  .status.err .dot { background: #ff6b6b; box-shadow: 0 0 8px #ff6b6b; }
+  main {
+    padding: 24px 32px 48px;
+    max-width: 1400px;
+    margin: 0 auto;
+  }
+  .cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 16px;
+    margin-bottom: 28px;
+  }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 18px 20px;
+    position: relative;
+    overflow: hidden;
+  }
+  .card::before {
+    content: "";
+    position: absolute;
+    top: 0; left: 0;
+    width: 4px; height: 100%;
+    background: var(--bar, var(--accent));
+  }
+  .card .label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-dim);
+    font-weight: 600;
+  }
+  .card .price {
+    font-size: 34px;
+    font-weight: 700;
+    margin-top: 4px;
+    letter-spacing: -0.02em;
+  }
+  .card .price small { font-size: 14px; color: var(--text-dim); font-weight: 500; }
+  .card .meta {
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-top: 6px;
+    display: flex;
+    justify-content: space-between;
+  }
+  .card .chg { font-weight: 600; }
+  .card .chg.up { color: var(--up); }
+  .card .chg.down { color: var(--down); }
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px 22px;
+    margin-bottom: 24px;
+  }
+  .panel-h {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+  .panel-h h2 {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 600;
+  }
+  .controls select {
+    background: var(--panel-2);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 7px 12px;
+    font-size: 13px;
+    cursor: pointer;
+    font-family: inherit;
+  }
+  .controls select:focus {
+    border-color: var(--accent);
+    outline: none;
+  }
+  .chart-wrap {
+    position: relative;
+    height: 340px;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+  th, td {
+    text-align: left;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+  }
+  th {
+    font-weight: 600;
+    color: var(--text-dim);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  tbody tr:hover { background: var(--panel-2); }
+  .badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 99px;
+    font-size: 11px;
+    font-weight: 600;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+  }
+  .legend {
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+    font-size: 12px;
+    color: var(--text-dim);
+  }
+  .legend .item { display: flex; align-items: center; gap: 6px; }
+  .legend .sw { width: 12px; height: 12px; border-radius: 3px; }
+  .err-box {
+    background: #3b1a1f;
+    border: 1px solid #6b2a32;
+    color: #ffc2c7;
+    padding: 12px 16px;
+    border-radius: 10px;
+    font-size: 13px;
+    margin-bottom: 24px;
+    display: none;
+    white-space: pre-wrap;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  .err-box.show { display: block; }
+  .loading { color: var(--text-dim); font-size: 13px; padding: 20px 0; text-align: center; }
+  footer {
+    text-align: center;
+    color: var(--text-dim);
+    font-size: 11px;
+    padding: 24px;
+    border-top: 1px solid var(--border);
+  }
+  /* ---- Login gate ---- */
+  #loginGate {
+    position: fixed;
+    inset: 0;
+    background: radial-gradient(ellipse at top, #172340 0%, #0b1120 70%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+    padding: 24px;
+  }
+  #loginGate.hidden { display: none; }
+  #loginCard {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 32px 28px;
+    width: 100%;
+    max-width: 380px;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.4);
+  }
+  #loginCard h2 {
+    margin: 0 0 4px;
+    font-size: 20px;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+  }
+  #loginCard h2 span { color: var(--accent); }
+  #loginCard .hint {
+    font-size: 12px;
+    color: var(--text-dim);
+    margin-bottom: 22px;
+  }
+  #loginCard label {
+    display: block;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-dim);
+    font-weight: 600;
+    margin-bottom: 6px;
+    margin-top: 14px;
+  }
+  #loginCard input {
+    width: 100%;
+    background: var(--panel-2);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 12px;
+    font-size: 14px;
+    font-family: inherit;
+    outline: none;
+  }
+  #loginCard input:focus { border-color: var(--accent); }
+  #loginCard button {
+    margin-top: 22px;
+    width: 100%;
+    background: var(--accent);
+    color: #0b1120;
+    border: 0;
+    border-radius: 8px;
+    padding: 11px 14px;
+    font-size: 14px;
+    font-weight: 700;
+    cursor: pointer;
+    font-family: inherit;
+    letter-spacing: 0.01em;
+  }
+  #loginCard button:hover { filter: brightness(1.05); }
+  #loginCard button:disabled { opacity: 0.6; cursor: wait; }
+  #loginErr {
+    margin-top: 12px;
+    color: #ffc2c7;
+    font-size: 12px;
+    min-height: 16px;
+  }
+  .logout-btn {
+    background: transparent;
+    color: var(--text-dim);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 6px 12px;
+    font-size: 12px;
+    cursor: pointer;
+    font-family: inherit;
+  }
+  .logout-btn:hover { color: var(--text); border-color: var(--accent); }
+</style>
+</head>
+<body>
+
+<div id="loginGate">
+  <form id="loginCard" autocomplete="off">
+    <h2>eFleet · <span>Monitor Diesel</span></h2>
+    <div class="hint">Acesso restrito. Informe suas credenciais.</div>
+    <label for="loginUser">Usuário</label>
+    <input id="loginUser" type="text" autocomplete="off" spellcheck="false" required>
+    <label for="loginPass">Senha</label>
+    <input id="loginPass" type="password" autocomplete="off" required>
+    <button type="submit" id="loginBtn">Entrar</button>
+    <div id="loginErr"></div>
+  </form>
+</div>
+
+<header>
+  <div>
+    <h1>eFleet · Monitor de <span>Diesel S10</span></h1>
+    <div class="sub">Preços diários por plataforma e por estado · Brasil</div>
+  </div>
+  <div class="status" id="status">
+    <div class="dot"></div>
+    <span id="statusText">iniciando…</span>
+    <button type="button" class="logout-btn" id="logoutBtn" style="margin-left:12px;">Sair</button>
+  </div>
+</header>
+
+<main>
+  <div class="err-box" id="errBox"></div>
+
+  <section class="cards" id="cards">
+    <div class="loading">carregando últimos preços…</div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-h">
+      <h2>Evolução do preço nacional (últimos 30 dias)</h2>
+      <div class="legend" id="legend"></div>
+    </div>
+    <div class="chart-wrap">
+      <canvas id="chart"></canvas>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-h">
+      <h2>Preços por estado · última data disponível</h2>
+      <div class="controls">
+        <select id="platformSel"></select>
+      </div>
+    </div>
+    <div id="stateTable">
+      <div class="loading">carregando tabela…</div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  Fonte: eFleet · TruckPag · Gasola (IPC.MLog / MundoLogística) · ANP — Dados armazenados no Supabase<br>
+  <span style="opacity:.7">© eFleet · diesel-tracker · uso interno</span>
+</footer>
+
+<script>
+(function() {
+  "use strict";
+
+  // ========================================================================
+  // CONFIG
+  // ========================================================================
+  const SUPABASE_URL = "https://qeseyfuilmxghukuqumi.supabase.co";
+  const SUPABASE_ANON_KEY = "sb_publishable_mUNL-HZuXt_IGu0GMuLWag_FA4kzwwS";
+
+  const PLATFORM_COLORS = {
+    eFleet:   "#ffcb3a",
+    TruckPag: "#4ade80",
+    Gasola:   "#60a5fa",
+    ANP:      "#f472b6"
+  };
+  const PLATFORM_ORDER = ["eFleet", "TruckPag", "Gasola", "ANP"];
+
+  // ========================================================================
+  // HELPERS
+  // ========================================================================
+  const $ = function(sel) { return document.querySelector(sel); };
+  const fmt = function(n) {
+    if (n == null || isNaN(n)) return "—";
+    return "R$ " + Number(n).toFixed(2).replace(".", ",");
+  };
+  const fmtDate = function(d) {
+    if (!d) return "—";
+    const parts = d.split("-");
+    return parts[2] + "/" + parts[1] + "/" + parts[0];
+  };
+
+  function setStatus(ok, txt) {
+    const el = $("#status");
+    if (!el) return;
+    el.classList.toggle("err", !ok);
+    const t = $("#statusText");
+    if (t) t.textContent = txt;
+  }
+
+  function showError(msg) {
+    const box = $("#errBox");
+    if (box) {
+      box.textContent = "Erro ao carregar dados:\n" + msg;
+      box.classList.add("show");
+    }
+    setStatus(false, "erro");
+    console.error("[painel-diesel]", msg);
+  }
+
+  // ========================================================================
+  // FETCH via REST (sem dependência do supabase-js)
+  // ========================================================================
+  async function fetchPrices() {
+    const since = new Date();
+    since.setDate(since.getDate() - 30);
+    const sinceStr = since.toISOString().slice(0, 10);
+
+    const url =
+      SUPABASE_URL +
+      "/rest/v1/diesel_prices" +
+      "?select=date,platform,state,price" +
+      "&date=gte." + sinceStr +
+      "&order=date.asc" +
+      "&limit=10000";
+
+    const res = await fetch(url, {
+      method: "GET",
+      headers: {
+        "apikey": SUPABASE_ANON_KEY,
+        "Authorization": "Bearer " + SUPABASE_ANON_KEY,
+        "Accept": "application/json"
+      }
+    });
+
+    if (!res.ok) {
+      const body = await res.text();
+      throw new Error("HTTP " + res.status + " — " + body.slice(0, 200));
+    }
+    return await res.json();
+  }
+
+  // ========================================================================
+  // RENDER: summary cards
+  // ========================================================================
+  function renderCards(rows) {
+    const national = rows.filter(function(r) { return r.state === "Nacional"; });
+    const byPlat = {};
+    national.forEach(function(r) {
+      if (!byPlat[r.platform]) byPlat[r.platform] = [];
+      byPlat[r.platform].push(r);
+    });
+
+    const container = $("#cards");
+    container.innerHTML = "";
+
+    const platforms = PLATFORM_ORDER.filter(function(p) { return byPlat[p]; });
+    if (platforms.length === 0) {
+      container.innerHTML = '<div class="loading">Sem dados nacionais recentes.</div>';
+      return;
+    }
+
+    platforms.forEach(function(plat) {
+      const series = byPlat[plat].sort(function(a, b) { return a.date.localeCompare(b.date); });
+      const latest = series[series.length - 1];
+      const prev = series.length > 1 ? series[series.length - 2] : null;
+      const delta = prev ? (Number(latest.price) - Number(prev.price)) : null;
+      const deltaPct = prev && Number(prev.price) > 0 ? (delta / Number(prev.price) * 100) : null;
+
+      const arrow = delta == null ? "" : delta > 0 ? "▲" : delta < 0 ? "▼" : "●";
+      const cls = delta == null ? "" : delta > 0 ? "up" : delta < 0 ? "down" : "";
+      const deltaTxt = delta == null ? "—" :
+        arrow + " " + fmt(Math.abs(delta)) +
+        (deltaPct != null ? " (" + (deltaPct > 0 ? "+" : "") + deltaPct.toFixed(2) + "%)" : "");
+
+      const card = document.createElement("div");
+      card.className = "card";
+      card.style.setProperty("--bar", PLATFORM_COLORS[plat] || "#ffcb3a");
+      card.innerHTML =
+        '<div class="label">' + plat + '</div>' +
+        '<div class="price">' + fmt(latest.price) + '<small> /L</small></div>' +
+        '<div class="meta">' +
+          '<span>' + fmtDate(latest.date) + '</span>' +
+          '<span class="chg ' + cls + '">' + deltaTxt + '</span>' +
+        '</div>';
+      container.appendChild(card);
+    });
+  }
+
+  // ========================================================================
+  // RENDER: time-series chart
+  // ========================================================================
+  let chartInstance = null;
+  function renderChart(rows) {
+    if (typeof Chart === "undefined") {
+      console.warn("[painel-diesel] Chart.js não carregou — pulando gráfico.");
+      return;
+    }
+
+    const national = rows.filter(function(r) { return r.state === "Nacional"; });
+    const dates = Array.from(new Set(national.map(function(r) { return r.date; }))).sort();
+
+    const byPlat = {};
+    national.forEach(function(r) {
+      if (!byPlat[r.platform]) byPlat[r.platform] = {};
+      byPlat[r.platform][r.date] = Number(r.price);
+    });
+
+    const datasets = PLATFORM_ORDER
+      .filter(function(p) { return byPlat[p]; })
+      .map(function(p) {
+        return {
+          label: p,
+          data: dates.map(function(d) { return byPlat[p][d] != null ? byPlat[p][d] : null; }),
+          borderColor: PLATFORM_COLORS[p],
+          backgroundColor: PLATFORM_COLORS[p] + "22",
+          borderWidth: 2.5,
+          pointRadius: 0,
+          pointHoverRadius: 5,
+          tension: 0.25,
+          spanGaps: true
+        };
+      });
+
+    const lg = $("#legend");
+    lg.innerHTML = datasets.map(function(d) {
+      return '<div class="item"><div class="sw" style="background:' + d.borderColor + '"></div>' + d.label + '</div>';
+    }).join("");
+
+    const ctx = $("#chart").getContext("2d");
+    if (chartInstance) chartInstance.destroy();
+    chartInstance = new Chart(ctx, {
+      type: "line",
+      data: {
+        labels: dates.map(function(d) {
+          const parts = d.split("-");
+          return parts[2] + "/" + parts[1];
+        }),
+        datasets: datasets
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: { mode: "index", intersect: false },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            backgroundColor: "#0b1120",
+            borderColor: "#1f2d4d",
+            borderWidth: 1,
+            padding: 12,
+            titleColor: "#e6edf7",
+            bodyColor: "#e6edf7",
+            callbacks: {
+              label: function(c) { return c.dataset.label + ": " + fmt(c.parsed.y); }
+            }
+          }
+        },
+        scales: {
+          x: {
+            grid: { color: "#1f2d4d", drawBorder: false },
+            ticks: { color: "#8fa0bf", font: { size: 11 } }
+          },
+          y: {
+            grid: { color: "#1f2d4d", drawBorder: false },
+            ticks: {
+              color: "#8fa0bf",
+              font: { size: 11 },
+              callback: function(v) { return "R$ " + Number(v).toFixed(2).replace(".", ","); }
+            }
+          }
+        }
+      }
+    });
+  }
+
+  // ========================================================================
+  // RENDER: state-by-state table
+  // ========================================================================
+  let lastData = null;
+  function 
