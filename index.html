@@ -587,4 +587,208 @@
   // RENDER: state-by-state table
   // ========================================================================
   let lastData = null;
-  function 
+  function renderStateTable(rows) {
+    lastData = rows;
+
+    const platforms = [];
+    rows.forEach(function(r) {
+      if (platforms.indexOf(r.platform) === -1) platforms.push(r.platform);
+    });
+    platforms.sort(function(a, b) {
+      const ia = PLATFORM_ORDER.indexOf(a);
+      const ib = PLATFORM_ORDER.indexOf(b);
+      return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib);
+    });
+
+    const sel = $("#platformSel");
+    if (sel.options.length === 0) {
+      platforms.forEach(function(p) {
+        const opt = document.createElement("option");
+        opt.value = p;
+        opt.textContent = p;
+        sel.appendChild(opt);
+      });
+      sel.addEventListener("change", function() { drawStateTable(sel.value); });
+    }
+
+    drawStateTable(sel.value || platforms[0]);
+  }
+
+  function drawStateTable(platform) {
+    if (!lastData) return;
+    const rows = lastData.filter(function(r) {
+      return r.platform === platform && r.state !== "Nacional";
+    });
+    if (rows.length === 0) {
+      $("#stateTable").innerHTML = '<div class="loading">Sem dados para esta plataforma.</div>';
+      return;
+    }
+
+    const maxDate = rows.reduce(function(a, b) { return a.date > b.date ? a : b; }).date;
+    const latest = rows.filter(function(r) { return r.date === maxDate; });
+
+    const allDates = Array.from(new Set(rows.map(function(r) { return r.date; }))).sort();
+    const prevDate = allDates.length > 1 ? allDates[allDates.length - 2] : null;
+    const prevMap = {};
+    if (prevDate) {
+      rows.filter(function(x) { return x.date === prevDate; })
+          .forEach(function(r) { prevMap[r.state] = Number(r.price); });
+    }
+
+    const sorted = latest.slice().sort(function(a, b) { return Number(b.price) - Number(a.price); });
+
+    let html =
+      '<div style="font-size:12px;color:var(--text-dim);margin-bottom:10px;">' +
+        'Dados de <span class="badge">' + fmtDate(maxDate) + '</span> · ' + sorted.length + ' estados' +
+      '</div>' +
+      '<table><thead><tr>' +
+        '<th>UF</th><th class="num">Preço (R$/L)</th><th class="num">Δ dia anterior</th>' +
+      '</tr></thead><tbody>';
+
+    sorted.forEach(function(r) {
+      const prev = prevMap[r.state];
+      const delta = prev != null ? Number(r.price) - prev : null;
+      const cls = delta == null ? "" : delta > 0 ? "up" : delta < 0 ? "down" : "";
+      const sign = delta == null ? "—" : (delta > 0 ? "+" : delta < 0 ? "−" : "");
+      const deltaTxt = delta == null ? "—" :
+        '<span class="chg ' + cls + '">' + sign + fmt(Math.abs(delta)) + '</span>';
+      html +=
+        '<tr>' +
+          '<td><strong>' + r.state + '</strong></td>' +
+          '<td class="num">' + fmt(r.price) + '</td>' +
+          '<td class="num">' + deltaTxt + '</td>' +
+        '</tr>';
+    });
+    html += '</tbody></table>';
+    $("#stateTable").innerHTML = html;
+  }
+
+  // ========================================================================
+  // INIT
+  // ========================================================================
+  async function init() {
+    try {
+      setStatus(true, "conectando ao Supabase…");
+      const data = await fetchPrices();
+      if (!data || data.length === 0) {
+        showError("Nenhum registro encontrado nos últimos 30 dias.");
+        return;
+      }
+      setStatus(true, data.length + " registros · conectado");
+      renderCards(data);
+      renderChart(data);
+      renderStateTable(data);
+    } catch (err) {
+      showError((err && err.message) || String(err));
+    }
+  }
+
+  // ========================================================================
+  // AUTH GATE (client-side)
+  // ========================================================================
+  // Hash SHA-256 de "admin-efleet:eFleet@2026#"
+  const AUTH_HASH  = "b6592df49402ea82a3a8d4024986d998be88f38432ecb8bc84be2248248f7072";
+  const AUTH_KEY   = "efleet_diesel_auth_v1";
+  const AUTH_TOKEN = "ok:" + AUTH_HASH.slice(0, 16);
+
+  async function sha256Hex(str) {
+    const enc = new TextEncoder().encode(str);
+    const buf = await crypto.subtle.digest("SHA-256", enc);
+    const bytes = new Uint8Array(buf);
+    let hex = "";
+    for (let i = 0; i < bytes.length; i++) {
+      hex += bytes[i].toString(16).padStart(2, "0");
+    }
+    return hex;
+  }
+
+  function isAuthenticated() {
+    try {
+      return sessionStorage.getItem(AUTH_KEY) === AUTH_TOKEN;
+    } catch (_) { return false; }
+  }
+
+  function markAuthenticated() {
+    try { sessionStorage.setItem(AUTH_KEY, AUTH_TOKEN); } catch (_) {}
+  }
+
+  function clearAuth() {
+    try { sessionStorage.removeItem(AUTH_KEY); } catch (_) {}
+  }
+
+  function showGate() {
+    const g = document.getElementById("loginGate");
+    if (g) g.classList.remove("hidden");
+    const u = document.getElementById("loginUser");
+    if (u) setTimeout(function() { u.focus(); }, 50);
+  }
+
+  function hideGate() {
+    const g = document.getElementById("loginGate");
+    if (g) g.classList.add("hidden");
+  }
+
+  function wireLogin() {
+    const form = document.getElementById("loginCard");
+    const errEl = document.getElementById("loginErr");
+    const btn  = document.getElementById("loginBtn");
+    if (!form) return;
+
+    form.addEventListener("submit", async function(ev) {
+      ev.preventDefault();
+      errEl.textContent = "";
+      const user = (document.getElementById("loginUser").value || "").trim();
+      const pass = document.getElementById("loginPass").value || "";
+      if (!user || !pass) {
+        errEl.textContent = "Informe usuário e senha.";
+        return;
+      }
+      btn.disabled = true;
+      btn.textContent = "Verificando…";
+      try {
+        const h = await sha256Hex(user + ":" + pass);
+        if (h === AUTH_HASH) {
+          markAuthenticated();
+          hideGate();
+          init();
+        } else {
+          errEl.textContent = "Usuário ou senha inválidos.";
+          document.getElementById("loginPass").value = "";
+          document.getElementById("loginPass").focus();
+        }
+      } catch (e) {
+        errEl.textContent = "Erro ao validar: " + (e && e.message || e);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = "Entrar";
+      }
+    });
+
+    const logoutBtn = document.getElementById("logoutBtn");
+    if (logoutBtn) {
+      logoutBtn.addEventListener("click", function() {
+        clearAuth();
+        location.reload();
+      });
+    }
+  }
+
+  function boot() {
+    wireLogin();
+    if (isAuthenticated()) {
+      hideGate();
+      init();
+    } else {
+      showGate();
+    }
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", boot);
+  } else {
+    boot();
+  }
+})();
+</script>
+</body>
+</html>
