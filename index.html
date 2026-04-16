@@ -303,6 +303,151 @@
     font-family: inherit;
   }
   .logout-btn:hover { color: var(--text); border-color: var(--accent); }
+  /* ---- Feature 1: Date Selector + Big Price Display ---- */
+  #dateSelectorPanel {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 16px;
+    margin-bottom: 24px;
+  }
+  #dateSelectorPanel input[type="date"],
+  #dateSelectorPanel select {
+    background: var(--panel-2);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 12px;
+    font-size: 13px;
+    font-family: inherit;
+  }
+  #dateSelectorPanel input[type="date"]:focus,
+  #dateSelectorPanel select:focus {
+    border-color: var(--accent);
+    outline: none;
+  }
+  #priceDisplayCard {
+    grid-column: 1 / -1;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+    text-align: center;
+  }
+  #priceDisplayCard.hidden { display: none; }
+  #priceDisplayLabel {
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-dim);
+    font-weight: 600;
+  }
+  #priceDisplayValue {
+    font-size: 48px;
+    font-weight: 700;
+    margin-top: 8px;
+    letter-spacing: -0.02em;
+  }
+  #priceDisplayValue small {
+    font-size: 18px;
+    color: var(--text-dim);
+    font-weight: 500;
+  }
+  #priceDisplayMeta {
+    font-size: 12px;
+    color: var(--text-dim);
+    margin-top: 12px;
+  }
+  /* ---- Feature 2: Brazil Heat Map ---- */
+  #mapContainer {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+  #brazilMap {
+    width: 100%;
+    max-width: 600px;
+    height: auto;
+    margin: 0 auto;
+  }
+  #mapLegend {
+    display: flex;
+    justify-content: center;
+    gap: 20px;
+    flex-wrap: wrap;
+    font-size: 12px;
+    color: var(--text-dim);
+    margin-top: 12px;
+  }
+  #mapLegend .item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  #mapLegend .sw {
+    width: 16px;
+    height: 16px;
+    border-radius: 3px;
+  }
+  .state-path {
+    stroke: #0b1120;
+    stroke-width: 1.5;
+    cursor: pointer;
+    transition: opacity 0.2s;
+  }
+  .state-path:hover {
+    opacity: 0.8;
+  }
+  .state-tooltip {
+    position: absolute;
+    background: rgba(11, 17, 32, 0.95);
+    color: var(--text);
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-size: 12px;
+    pointer-events: none;
+    border: 1px solid var(--border);
+    white-space: nowrap;
+    z-index: 100;
+  }
+  /* ---- Feature 3: Horizontal Bar Chart ---- */
+  #barChartContainer {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+  .bar-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 12px;
+  }
+  .bar-label {
+    width: 40px;
+    font-weight: 600;
+    text-align: right;
+    color: var(--text);
+  }
+  .bar-wrapper {
+    flex: 1;
+    background: var(--panel-2);
+    border-radius: 4px;
+    height: 24px;
+    position: relative;
+    overflow: hidden;
+    border: 1px solid var(--border);
+  }
+  .bar-fill {
+    height: 100%;
+    border-radius: 3px;
+    transition: width 0.3s;
+  }
+  .bar-price {
+    width: 60px;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    color: var(--text);
+    font-weight: 500;
+  }
 </style>
 </head>
 <body>
@@ -339,6 +484,16 @@
     <div class="loading">carregando últimos preços…</div>
   </section>
 
+  <section id="dateSelectorPanel" class="panel">
+    <input type="date" id="dateSelector">
+    <select id="platformSelector"></select>
+    <div id="priceDisplayCard" class="hidden">
+      <div id="priceDisplayLabel"></div>
+      <div id="priceDisplayValue"></div>
+      <div id="priceDisplayMeta"></div>
+    </div>
+  </section>
+
   <section class="panel">
     <div class="panel-h">
       <h2>Evolução do preço nacional (últimos 30 dias)</h2>
@@ -359,6 +514,23 @@
     <div id="stateTable">
       <div class="loading">carregando tabela…</div>
     </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-h">
+      <h2>Mapa de calor por estado · Brasil</h2>
+    </div>
+    <div id="mapContainer">
+      <svg id="brazilMap" viewBox="0 0 800 750" xmlns="http://www.w3.org/2000/svg"></svg>
+      <div id="mapLegend"></div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-h">
+      <h2>Ranking de preços por estado</h2>
+    </div>
+    <div id="barChartContainer"></div>
   </section>
 </main>
 
@@ -621,6 +793,8 @@
     });
     if (rows.length === 0) {
       $("#stateTable").innerHTML = '<div class="loading">Sem dados para esta plataforma.</div>';
+      renderBrazilMap(lastData);
+      renderBarChart(lastData);
       return;
     }
 
@@ -661,6 +835,223 @@
     });
     html += '</tbody></table>';
     $("#stateTable").innerHTML = html;
+
+    renderBrazilMap(lastData);
+    renderBarChart(lastData);
+  }
+
+  // ========================================================================
+  // RENDER: Date Selector + Big Price Display (Feature 1)
+  // ========================================================================
+  function renderDateSelector(rows) {
+    if (!rows || rows.length === 0) return;
+
+    const dateInput = $("#dateSelector");
+    const platformSelect = $("#platformSelector");
+    const priceDisplay = $("#priceDisplayCard");
+
+    const allDates = Array.from(new Set(rows.map(function(r) { return r.date; }))).sort().reverse();
+    const allPlatforms = PLATFORM_ORDER.filter(function(p) {
+      return rows.some(function(r) { return r.platform === p && r.state === "Nacional"; });
+    });
+
+    if (allDates.length === 0 || allPlatforms.length === 0) {
+      priceDisplay.classList.add("hidden");
+      return;
+    }
+
+    const mostRecentDate = allDates[0];
+    dateInput.value = mostRecentDate;
+    dateInput.max = mostRecentDate;
+
+    platformSelect.innerHTML = "";
+    allPlatforms.forEach(function(p) {
+      const opt = document.createElement("option");
+      opt.value = p;
+      opt.textContent = p;
+      platformSelect.appendChild(opt);
+    });
+    platformSelect.value = allPlatforms[0];
+
+    function updatePriceDisplay() {
+      const selectedDate = dateInput.value;
+      const selectedPlatform = platformSelect.value;
+
+      const match = rows.find(function(r) {
+        return r.date === selectedDate && r.platform === selectedPlatform && r.state === "Nacional";
+      });
+
+      if (match) {
+        $("#priceDisplayLabel").textContent = selectedPlatform;
+        $("#priceDisplayValue").innerHTML = fmt(match.price) + '<small> /L</small>';
+        $("#priceDisplayMeta").textContent = "Data: " + fmtDate(selectedDate);
+        priceDisplay.classList.remove("hidden");
+      } else {
+        $("#priceDisplayLabel").textContent = selectedPlatform;
+        $("#priceDisplayValue").innerHTML = "Sem dados";
+        $("#priceDisplayMeta").textContent = "Data: " + fmtDate(selectedDate);
+        priceDisplay.classList.remove("hidden");
+      }
+    }
+
+    dateInput.addEventListener("change", updatePriceDisplay);
+    platformSelect.addEventListener("change", updatePriceDisplay);
+
+    updatePriceDisplay();
+  }
+
+  // ========================================================================
+  // RENDER: Brazil Heat Map (Feature 2)
+  // ========================================================================
+  const STATE_PATHS = {
+    AC: "M48,410 L75,405 80,430 55,440Z",
+    AM: "M80,280 L200,260 220,340 180,380 100,390 60,350Z",
+    AP: "M280,220 L310,200 330,250 300,270Z",
+    PA: "M220,260 L380,240 400,320 340,360 240,360 200,340Z",
+    MA: "M400,280 L460,270 470,330 420,350Z",
+    PI: "M460,300 L500,290 510,370 470,380Z",
+    CE: "M510,270 L550,265 545,310 505,315Z",
+    RN: "M555,275 L580,272 578,298 550,300Z",
+    PB: "M548,305 L580,302 578,325 545,328Z",
+    PE: "M530,330 L585,325 583,355 528,358Z",
+    AL: "M560,360 L585,358 583,380 558,382Z",
+    SE: "M555,385 L578,383 576,400 553,402Z",
+    BA: "M450,360 L550,350 560,410 540,480 460,500 420,450Z",
+    MG: "M420,460 L520,440 540,500 510,560 430,570 400,520Z",
+    ES: "M540,490 L570,485 568,520 538,525Z",
+    RJ: "M510,545 L550,535 555,560 515,565Z",
+    SP: "M400,530 L500,520 510,560 480,590 410,580Z",
+    PR: "M390,580 L470,575 475,610 395,615Z",
+    SC: "M410,618 L465,614 462,645 408,648Z",
+    RS: "M380,650 L450,645 445,710 385,715Z",
+    MS: "M320,480 L400,470 410,540 380,580 330,560Z",
+    MT: "M220,370 L340,360 360,450 320,480 230,460Z",
+    GO: "M360,440 L430,435 440,500 400,530 360,510Z",
+    DF: "M405,460 L420,458 418,475 403,477Z",
+    TO: "M380,320 L430,315 440,400 400,410 370,380Z",
+    RO: "M120,390 L200,380 210,430 150,450Z",
+    RR: "M140,200 L200,190 210,250 160,260Z"
+  };
+
+  function getColorByPrice(price) {
+    if (price == null) return "#2a3654";
+    const p = Number(price);
+    if (p > 7.50) return "#ff6b6b";
+    if (p >= 7.00) return "#ffcb3a";
+    return "#4ade80";
+  }
+
+  function renderBrazilMap(rows) {
+    if (!rows || rows.length === 0) return;
+
+    const platform = $("#platformSel").value || PLATFORM_ORDER[0];
+    const stateData = rows.filter(function(r) {
+      return r.platform === platform && r.state !== "Nacional";
+    });
+
+    if (stateData.length === 0) {
+      $("#mapContainer").innerHTML = '<div class="loading">Sem dados para este estado.</div>';
+      return;
+    }
+
+    const maxDate = stateData.reduce(function(a, b) { return a.date > b.date ? a : b; }).date;
+    const latestByState = {};
+    stateData.filter(function(r) { return r.date === maxDate; }).forEach(function(r) {
+      latestByState[r.state] = Number(r.price);
+    });
+
+    const svgEl = $("#brazilMap");
+    svgEl.innerHTML = "";
+
+    Object.keys(STATE_PATHS).forEach(function(uf) {
+      const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      path.setAttribute("d", STATE_PATHS[uf]);
+      path.setAttribute("class", "state-path");
+      const price = latestByState[uf];
+      const color = getColorByPrice(price);
+      path.setAttribute("fill", color);
+      path.setAttribute("data-uf", uf);
+      path.setAttribute("data-price", price || "—");
+
+      path.addEventListener("mouseenter", function() {
+        const tooltip = document.createElement("div");
+        tooltip.className = "state-tooltip";
+        tooltip.textContent = uf + ": " + (price ? fmt(price) : "Sem dados");
+        tooltip.style.left = event.pageX + "px";
+        tooltip.style.top = (event.pageY - 30) + "px";
+        document.body.appendChild(tooltip);
+        path.dataset.tooltip = tooltip;
+      });
+
+      path.addEventListener("mousemove", function() {
+        const tooltip = path.dataset.tooltip ? document.querySelector('[style*="' + path.dataset.tooltip.textContent.split(":")[0] + '"]') : null;
+        const tooltips = document.querySelectorAll(".state-tooltip");
+        tooltips.forEach(function(t) { t.remove(); });
+        const tooltip2 = document.createElement("div");
+        tooltip2.className = "state-tooltip";
+        tooltip2.textContent = uf + ": " + (price ? fmt(price) : "Sem dados");
+        tooltip2.style.left = (event.pageX + 10) + "px";
+        tooltip2.style.top = (event.pageY - 30) + "px";
+        document.body.appendChild(tooltip2);
+      });
+
+      path.addEventListener("mouseleave", function() {
+        const tooltips = document.querySelectorAll(".state-tooltip");
+        tooltips.forEach(function(t) { t.remove(); });
+      });
+
+      svgEl.appendChild(path);
+    });
+
+    const legend = $("#mapLegend");
+    legend.innerHTML =
+      '<div class="item"><div class="sw" style="background:#ff6b6b;"></div> R$ 7,50+</div>' +
+      '<div class="item"><div class="sw" style="background:#ffcb3a;"></div> R$ 7,00 - 7,50</div>' +
+      '<div class="item"><div class="sw" style="background:#4ade80;"></div> &lt; R$ 7,00</div>' +
+      '<div class="item"><div class="sw" style="background:#2a3654;"></div> Sem dados</div>';
+  }
+
+  // ========================================================================
+  // RENDER: Horizontal Bar Chart (Feature 3)
+  // ========================================================================
+  function renderBarChart(rows) {
+    if (!rows || rows.length === 0) return;
+
+    const platform = $("#platformSel").value || PLATFORM_ORDER[0];
+    const stateData = rows.filter(function(r) {
+      return r.platform === platform && r.state !== "Nacional";
+    });
+
+    if (stateData.length === 0) {
+      $("#barChartContainer").innerHTML = '<div class="loading">Sem dados para este plataforma.</div>';
+      return;
+    }
+
+    const maxDate = stateData.reduce(function(a, b) { return a.date > b.date ? a : b; }).date;
+    const latest = stateData.filter(function(r) { return r.date === maxDate; });
+    const sorted = latest.slice().sort(function(a, b) { return Number(b.price) - Number(a.price); });
+
+    const minPrice = 6.0;
+    const maxPrice = 9.0;
+    const range = maxPrice - minPrice;
+
+    let html = '';
+    sorted.forEach(function(r) {
+      const price = Number(r.price);
+      const pct = Math.max(0, Math.min(100, ((price - minPrice) / range) * 100));
+      const color = getColorByPrice(price);
+
+      html +=
+        '<div class="bar-row">' +
+          '<div class="bar-label">' + r.state + '</div>' +
+          '<div class="bar-wrapper">' +
+            '<div class="bar-fill" style="width:' + pct + '%;background:' + color + ';"></div>' +
+          '</div>' +
+          '<div class="bar-price">' + fmt(price) + '</div>' +
+        '</div>';
+    });
+
+    $("#barChartContainer").innerHTML = html;
   }
 
   // ========================================================================
@@ -677,7 +1068,10 @@
       setStatus(true, data.length + " registros · conectado");
       renderCards(data);
       renderChart(data);
+      renderDateSelector(data);
       renderStateTable(data);
+      renderBrazilMap(data);
+      renderBarChart(data);
     } catch (err) {
       showError((err && err.message) || String(err));
     }
