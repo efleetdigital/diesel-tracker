@@ -420,7 +420,7 @@
     border-radius: 4px;
     height: 22px;
     position: relative;
-    overflow: hidden;
+    overflow: visible;
     border: 1px solid var(--border);
   }
   .rank-fill {
@@ -428,12 +428,28 @@
     border-radius: 3px;
     transition: width 0.3s;
   }
+  .rank-dot {
+    position: absolute;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    border: 2px solid;
+    z-index: 2;
+    cursor: help;
+  }
   .rank-price {
     width: 70px;
     text-align: right;
     font-variant-numeric: tabular-nums;
     color: var(--text);
     font-weight: 600;
+    flex-shrink: 0;
+  }
+  .rank-cheapest {
+    width: 72px;
+    text-align: left;
     flex-shrink: 0;
   }
   @media (max-width: 768px) {
@@ -651,16 +667,7 @@
     const container = $("#cards");
     container.innerHTML = "";
 
-    const platforms = PLATFORM_ORDER.filter(function(p) {
-      return national.some(function(r) { return r.platform === p; });
-    });
-
-    if (platforms.length === 0) {
-      container.innerHTML = '<div class="loading">Sem dados para esta data.</div>';
-      return;
-    }
-
-    platforms.forEach(function(plat) {
+    PLATFORM_ORDER.forEach(function(plat) {
       const match = national.find(function(r) { return r.platform === plat; });
       const price = match ? match.price : null;
 
@@ -841,20 +848,20 @@
     });
 
     // Render header
-    let headerHtml = '<th>UF</th>';
+    let headerHtml = '<th style="text-align:left;">UF</th>';
     platforms.forEach(function(p) {
-      headerHtml += '<th class="num">' + p + '</th>';
+      headerHtml += '<th style="text-align:center;">' + p + '</th>';
     });
     $("#tableHeader").innerHTML = headerHtml;
 
     // Render body
     let bodyHtml = '';
     states.forEach(function(state) {
-      bodyHtml += '<tr><td><strong>' + state + '</strong></td>';
+      bodyHtml += '<tr><td style="text-align:left;"><strong>' + state + '</strong></td>';
       platforms.forEach(function(plat) {
         const price = dataMap[state][plat];
         const colorClass = getPriceColor(price);
-        bodyHtml += '<td class="price-cell ' + colorClass + '">' + fmt(price) + '</td>';
+        bodyHtml += '<td class="price-cell ' + colorClass + '" style="text-align:center;">' + fmt(price) + '</td>';
       });
       bodyHtml += '</tr>';
     });
@@ -1000,41 +1007,73 @@
       return;
     }
 
-    // Calculate average price per state
+    // Calculate average price per state + per-platform prices
     const stateAvgs = {};
-    const statePlatforms = {};
+    const statePlatformPrices = {};
     stateData.forEach(function(r) {
-      if (!statePlatforms[r.state]) statePlatforms[r.state] = [];
-      statePlatforms[r.state].push(Number(r.price));
+      if (!statePlatformPrices[r.state]) statePlatformPrices[r.state] = {};
+      statePlatformPrices[r.state][r.platform] = Number(r.price);
     });
 
-    Object.keys(statePlatforms).forEach(function(state) {
-      const prices = statePlatforms[state];
+    Object.keys(statePlatformPrices).forEach(function(state) {
+      var prices = Object.values(statePlatformPrices[state]);
       stateAvgs[state] = prices.reduce(function(a, b) { return a + b; }, 0) / prices.length;
     });
 
-    const sorted = Object.keys(stateAvgs)
+    var sorted = Object.keys(stateAvgs)
       .sort(function(a, b) { return stateAvgs[b] - stateAvgs[a]; });
 
-    const minPrice = 6.0;
-    const maxPrice = 9.0;
-    const range = maxPrice - minPrice;
+    var minPrice = 6.0;
+    var maxPrice = 9.0;
+    var range = maxPrice - minPrice;
 
-    let html = '';
+    var html = '';
     sorted.forEach(function(state) {
-      const avg = stateAvgs[state];
-      const pct = Math.max(0, Math.min(100, ((avg - minPrice) / range) * 100));
-      const color = getPriceHexColor(avg);
+      var avg = stateAvgs[state];
+      var pct = Math.max(0, Math.min(100, ((avg - minPrice) / range) * 100));
+      var color = getPriceHexColor(avg);
+      var platPrices = statePlatformPrices[state] || {};
+
+      // Find cheapest platform for this state
+      var cheapestPlat = null;
+      var cheapestPrice = Infinity;
+      PLATFORM_ORDER.forEach(function(p) {
+        if (platPrices[p] != null && platPrices[p] < cheapestPrice) {
+          cheapestPrice = platPrices[p];
+          cheapestPlat = p;
+        }
+      });
+
+      // Build dots for eFleet and TruckPag
+      var dotsHtml = '';
+      ["eFleet", "TruckPag"].forEach(function(p) {
+        if (platPrices[p] != null) {
+          var dotPct = Math.max(0, Math.min(100, ((platPrices[p] - minPrice) / range) * 100));
+          var dotColor = PLATFORM_COLORS[p];
+          dotsHtml += '<div class="rank-dot" style="left:' + dotPct + '%;background:' + dotColor + ';border-color:' + dotColor + ';" title="' + p + ': ' + fmt(platPrices[p]) + '"></div>';
+        }
+      });
+
+      var cheapestLabel = cheapestPlat ? '<span style="color:' + PLATFORM_COLORS[cheapestPlat] + ';font-size:11px;font-weight:600;">' + cheapestPlat + '</span>' : '';
 
       html +=
         '<div class="rank-row">' +
           '<div class="rank-label">' + state + '</div>' +
           '<div class="rank-wrapper">' +
             '<div class="rank-fill" style="width:' + pct + '%;background:' + color + ';"></div>' +
+            dotsHtml +
           '</div>' +
           '<div class="rank-price">' + fmt(avg) + '</div>' +
+          '<div class="rank-cheapest">' + cheapestLabel + '</div>' +
         '</div>';
     });
+
+    // Add legend for dots
+    html += '<div style="display:flex;gap:16px;margin-top:16px;font-size:12px;color:var(--text-dim);justify-content:center;flex-wrap:wrap;">' +
+      '<div style="display:flex;align-items:center;gap:6px;"><div style="width:10px;height:10px;border-radius:50%;background:#ffcb3a;"></div> eFleet</div>' +
+      '<div style="display:flex;align-items:center;gap:6px;"><div style="width:10px;height:10px;border-radius:50%;background:#4ade80;"></div> TruckPag</div>' +
+      '<div style="display:flex;align-items:center;gap:6px;font-style:italic;">Direita = plataforma mais barata naquele estado</div>' +
+    '</div>';
 
     $("#rankingContainer").innerHTML = html;
   }
@@ -1189,4 +1228,3 @@
 </script>
 </body>
 </html>
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          
