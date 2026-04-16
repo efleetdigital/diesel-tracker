@@ -1195,4 +1195,58 @@
     form.addEventListener("submit", async function(ev) {
       ev.preventDefault();
       errEl.textContent = "";
-      const user = (d
+      const user = (document.getElementById("loginUser").value || "").trim();
+      const pass = document.getElementById("loginPass").value || "";
+      if (!user || !pass) {
+        errEl.textContent = "Informe usuário e senha.";
+        return;
+      }
+      btn.disabled = true;
+      btn.textContent = "Verificando…";
+      try {
+        const h = await sha256Hex(user + ":" + pass);
+        if (h === AUTH_HASH) {
+          markAuthenticated();
+          hideGate();
+          init();
+        } else {
+          errEl.textContent = "Usuário ou senha inválidos.";
+          document.getElementById("loginPass").value = "";
+          document.getElementById("loginPass").focus();
+        }
+      } catch (e) {
+        errEl.textContent = "Erro ao validar: " + (e && e.message || e);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = "Entrar";
+      }
+    });
+
+    const logoutBtn = document.getElementById("logoutBtn");
+    if (logoutBtn) {
+      logoutBtn.addEventListener("click", function() {
+        clearAuth();
+        location.reload();
+      });
+    }
+  }
+
+  function boot() {
+    wireLogin();
+    if (isAuthenticated()) {
+      hideGate();
+      init();
+    } else {
+      showGate();
+    }
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", boot);
+  } else {
+    boot();
+  }
+})();
+</script>
+</body>
+</html>
