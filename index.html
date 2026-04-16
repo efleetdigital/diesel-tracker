@@ -512,6 +512,13 @@
 
   <section class="panel">
     <div class="panel-h">
+      <h2>Ranking de preços por estado (média entre plataformas)</h2>
+    </div>
+    <div id="rankingContainer"></div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-h">
       <h2>Preços por estado · comparação entre plataformas</h2>
     </div>
     <div class="table-wrapper">
@@ -534,13 +541,6 @@
       <svg id="brazilMap"></svg>
       <div id="mapLegend"></div>
     </div>
-  </section>
-
-  <section class="panel">
-    <div class="panel-h">
-      <h2>Ranking de preços por estado (média entre plataformas)</h2>
-    </div>
-    <div id="rankingContainer"></div>
   </section>
 </main>
 
@@ -668,15 +668,26 @@
     container.innerHTML = "";
 
     PLATFORM_ORDER.forEach(function(plat) {
-      const match = national.find(function(r) { return r.platform === plat; });
+      // ANP: always show the latest available data (weekly), not the selected date
+      var cardDate, match;
+      if (plat === "ANP") {
+        var anpNational = allData.filter(function(r) {
+          return r.state === "Nacional" && r.platform === "ANP";
+        }).sort(function(a, b) { return b.date.localeCompare(a.date); });
+        match = anpNational[0] || null;
+        cardDate = match ? match.date : selectedDate;
+      } else {
+        match = national.find(function(r) { return r.platform === plat; });
+        cardDate = selectedDate;
+      }
       const price = match ? match.price : null;
 
-      // Find previous date
+      // Find previous date for variation
       const allDates = Array.from(new Set(allData.filter(function(r) {
         return r.state === "Nacional" && r.platform === plat;
       }).map(function(r) { return r.date; }))).sort();
 
-      const idx = allDates.indexOf(selectedDate);
+      const idx = allDates.indexOf(cardDate);
       const prevDate = idx > 0 ? allDates[idx - 1] : null;
       const prevMatch = prevDate ? allData.find(function(r) {
         return r.date === prevDate && r.platform === plat && r.state === "Nacional";
@@ -698,7 +709,7 @@
         '<div class="label">' + plat + '</div>' +
         '<div class="price">' + fmt(price) + '<small> /L</small></div>' +
         '<div class="meta">' +
-          '<span>' + fmtDate(selectedDate) + '</span>' +
+          '<span>' + fmtDate(cardDate) + '</span>' +
           '<span class="chg ' + cls + '">' + deltaTxt + '</span>' +
         '</div>';
       container.appendChild(card);
@@ -817,9 +828,11 @@
   function renderStateTable() {
     if (!allData || !selectedDate) return;
 
-    const stateData = allData.filter(function(r) {
+    var stateData = allData.filter(function(r) {
       return r.state !== "Nacional" && r.date === selectedDate;
     });
+
+    var FIXED_PLATFORMS = ["eFleet", "TruckPag", "Gasola"];
 
     if (stateData.length === 0) {
       $("#tableHeader").innerHTML = "<th colspan='5' style='text-align:center;'>Sem dados para esta data</th>";
@@ -827,42 +840,57 @@
       return;
     }
 
-    const platforms = PLATFORM_ORDER.filter(function(p) {
-      return stateData.some(function(r) { return r.platform === p; });
-    });
-
-    const states = Array.from(new Set(stateData.map(function(r) { return r.state; }))).sort();
+    var states = Array.from(new Set(stateData.map(function(r) { return r.state; }))).sort();
 
     // Build data map: state -> platform -> price
-    const dataMap = {};
+    var dataMap = {};
     stateData.forEach(function(r) {
       if (!dataMap[r.state]) dataMap[r.state] = {};
       dataMap[r.state][r.platform] = Number(r.price);
     });
 
-    // Sort states by first platform that has data (highest price first)
+    // Sort states by eFleet price (highest first), fallback to TruckPag
     states.sort(function(a, b) {
-      const aPrice = dataMap[a][platforms[0]] || 0;
-      const bPrice = dataMap[b][platforms[0]] || 0;
+      var aPrice = (dataMap[a] && dataMap[a]["eFleet"]) || (dataMap[a] && dataMap[a]["TruckPag"]) || 0;
+      var bPrice = (dataMap[b] && dataMap[b]["eFleet"]) || (dataMap[b] && dataMap[b]["TruckPag"]) || 0;
       return bPrice - aPrice;
     });
 
-    // Render header
-    let headerHtml = '<th style="text-align:left;">UF</th>';
-    platforms.forEach(function(p) {
-      headerHtml += '<th style="text-align:center;">' + p + '</th>';
+    // Render header — always 3 fixed columns + Mais Barato
+    var headerHtml = '<th style="text-align:left;">UF</th>';
+    FIXED_PLATFORMS.forEach(function(p) {
+      headerHtml += '<th style="text-align:center;color:' + PLATFORM_COLORS[p] + ';">' + p + '</th>';
     });
+    headerHtml += '<th style="text-align:center;">Mais Barato</th>';
     $("#tableHeader").innerHTML = headerHtml;
 
     // Render body
-    let bodyHtml = '';
+    var bodyHtml = '';
     states.forEach(function(state) {
+      var row = dataMap[state] || {};
       bodyHtml += '<tr><td style="text-align:left;"><strong>' + state + '</strong></td>';
-      platforms.forEach(function(plat) {
-        const price = dataMap[state][plat];
-        const colorClass = getPriceColor(price);
-        bodyHtml += '<td class="price-cell ' + colorClass + '" style="text-align:center;">' + fmt(price) + '</td>';
+
+      // Find cheapest among available prices
+      var cheapestPlat = null;
+      var cheapestPrice = Infinity;
+
+      FIXED_PLATFORMS.forEach(function(plat) {
+        var price = row[plat];
+        var colorClass = getPriceColor(price);
+        bodyHtml += '<td class="price-cell ' + colorClass + '" style="text-align:center;">' + (price != null ? fmt(price) : '-') + '</td>';
+        if (price != null && price < cheapestPrice) {
+          cheapestPrice = price;
+          cheapestPlat = plat;
+        }
       });
+
+      // Mais Barato column
+      if (cheapestPlat) {
+        bodyHtml += '<td style="text-align:center;color:' + PLATFORM_COLORS[cheapestPlat] + ';font-weight:600;font-size:13px;">' + cheapestPlat + '</td>';
+      } else {
+        bodyHtml += '<td style="text-align:center;">-</td>';
+      }
+
       bodyHtml += '</tr>';
     });
     $("#tableBody").innerHTML = bodyHtml;
@@ -871,6 +899,18 @@
   // ========================================================================
   // RENDER: Brazil Heat Map (D3 + TopoJSON)
   // ========================================================================
+  // State name (GeoJSON) → abbreviation (Supabase) mapping
+  const STATE_NAME_TO_ABBR = {
+    "Acre": "AC", "Alagoas": "AL", "Amapá": "AP", "Amazonas": "AM",
+    "Bahia": "BA", "Ceará": "CE", "Distrito Federal": "DF",
+    "Espírito Santo": "ES", "Goiás": "GO", "Maranhão": "MA",
+    "Mato Grosso": "MT", "Mato Grosso do Sul": "MS", "Minas Gerais": "MG",
+    "Pará": "PA", "Paraíba": "PB", "Paraná": "PR", "Pernambuco": "PE",
+    "Piauí": "PI", "Rio de Janeiro": "RJ", "Rio Grande do Norte": "RN",
+    "Rio Grande do Sul": "RS", "Rondônia": "RO", "Roraima": "RR",
+    "Santa Catarina": "SC", "São Paulo": "SP", "Sergipe": "SE", "Tocantins": "TO"
+  };
+
   function renderBrazilMap() {
     if (!allData || !selectedDate) return;
 
@@ -879,11 +919,11 @@
     });
 
     if (stateData.length === 0) {
-      $("#mapContainer").innerHTML = '<div class="loading">Sem dados para este estado.</div>';
+      $("#mapContainer").innerHTML = '<div id="brazilMap"></div><div id="mapLegend"></div><div class="loading">Sem dados para esta data.</div>';
       return;
     }
 
-    // Build state -> avg price map
+    // Build abbr -> avg price map
     const stateAvgMap = {};
     const statePlatformMap = {};
     stateData.forEach(function(r) {
@@ -902,10 +942,7 @@
       .then(function(res) { return res.json(); })
       .then(function(geojson) {
         const container = $("#mapContainer");
-        const svgContainer = container.querySelector("svg");
-        if (!svgContainer) return;
-
-        svgContainer.innerHTML = "";
+        container.innerHTML = '<svg id="brazilMap"></svg><div id="mapLegend"></div>';
 
         const width = 700;
         const height = 600;
@@ -928,46 +965,44 @@
           .attr("d", pathGenerator)
           .attr("class", "state-path")
           .attr("fill", function(d) {
-            const stateName = d.properties.name;
-            const price = stateAvgMap[stateName];
+            var abbr = STATE_NAME_TO_ABBR[d.properties.name] || "";
+            var price = stateAvgMap[abbr];
             return getPriceHexColor(price);
           })
           .on("mouseenter", function(event, d) {
-            const stateName = d.properties.name;
-            const stateRows = stateData.filter(function(r) { return r.state === stateName; });
+            var abbr = STATE_NAME_TO_ABBR[d.properties.name] || "";
+            var stateRows = stateData.filter(function(r) { return r.state === abbr; });
 
-            let tooltipText = stateName + " (" + (d.properties.code || "?") + ")\n";
+            var tooltipText = d.properties.name + " (" + abbr + ")\n";
             PLATFORM_ORDER.forEach(function(plat) {
-              const match = stateRows.find(function(r) { return r.platform === plat; });
+              var match = stateRows.find(function(r) { return r.platform === plat; });
               if (match) {
                 tooltipText += plat + ": " + fmt(match.price) + "\n";
               }
             });
 
-            const tooltip = document.createElement("div");
+            var tooltip = document.createElement("div");
             tooltip.className = "state-tooltip";
             tooltip.textContent = tooltipText;
             tooltip.style.left = (event.pageX + 10) + "px";
             tooltip.style.top = (event.pageY - 30) + "px";
             document.body.appendChild(tooltip);
-            d3.select(this).datum().tooltip = tooltip;
           })
           .on("mousemove", function(event, d) {
-            const tooltips = document.querySelectorAll(".state-tooltip");
-            tooltips.forEach(function(t) { t.remove(); });
+            document.querySelectorAll(".state-tooltip").forEach(function(t) { t.remove(); });
 
-            const stateName = d.properties.name;
-            const stateRows = stateData.filter(function(r) { return r.state === stateName; });
+            var abbr = STATE_NAME_TO_ABBR[d.properties.name] || "";
+            var stateRows = stateData.filter(function(r) { return r.state === abbr; });
 
-            let tooltipText = stateName + " (" + (d.properties.code || "?") + ")\n";
+            var tooltipText = d.properties.name + " (" + abbr + ")\n";
             PLATFORM_ORDER.forEach(function(plat) {
-              const match = stateRows.find(function(r) { return r.platform === plat; });
+              var match = stateRows.find(function(r) { return r.platform === plat; });
               if (match) {
                 tooltipText += plat + ": " + fmt(match.price) + "\n";
               }
             });
 
-            const tooltip = document.createElement("div");
+            var tooltip = document.createElement("div");
             tooltip.className = "state-tooltip";
             tooltip.textContent = tooltipText;
             tooltip.style.left = (event.pageX + 10) + "px";
@@ -975,12 +1010,11 @@
             document.body.appendChild(tooltip);
           })
           .on("mouseleave", function() {
-            const tooltips = document.querySelectorAll(".state-tooltip");
-            tooltips.forEach(function(t) { t.remove(); });
+            document.querySelectorAll(".state-tooltip").forEach(function(t) { t.remove(); });
           });
 
         // Update legend
-        const legend = $("#mapLegend");
+        var legend = $("#mapLegend");
         legend.innerHTML =
           '<div class="item"><div class="sw" style="background:#ff6b6b;"></div>R$ 7,50+</div>' +
           '<div class="item"><div class="sw" style="background:#ffcb3a;"></div>R$ 7,00–7,50</div>' +
@@ -989,6 +1023,7 @@
       })
       .catch(function(err) {
         console.error("[map] Error loading GeoJSON:", err);
+        $("#mapContainer").innerHTML = '<div class="loading">Erro ao carregar mapa: ' + err.message + '</div>';
       });
   }
 
@@ -1034,27 +1069,15 @@
       var color = getPriceHexColor(avg);
       var platPrices = statePlatformPrices[state] || {};
 
-      // Find cheapest platform for this state
-      var cheapestPlat = null;
-      var cheapestPrice = Infinity;
-      PLATFORM_ORDER.forEach(function(p) {
-        if (platPrices[p] != null && platPrices[p] < cheapestPrice) {
-          cheapestPrice = platPrices[p];
-          cheapestPlat = p;
-        }
-      });
-
-      // Build dots for eFleet and TruckPag
+      // Build dots for eFleet, TruckPag and Gasola
       var dotsHtml = '';
-      ["eFleet", "TruckPag"].forEach(function(p) {
+      ["eFleet", "TruckPag", "Gasola"].forEach(function(p) {
         if (platPrices[p] != null) {
           var dotPct = Math.max(0, Math.min(100, ((platPrices[p] - minPrice) / range) * 100));
           var dotColor = PLATFORM_COLORS[p];
           dotsHtml += '<div class="rank-dot" style="left:' + dotPct + '%;background:' + dotColor + ';border-color:' + dotColor + ';" title="' + p + ': ' + fmt(platPrices[p]) + '"></div>';
         }
       });
-
-      var cheapestLabel = cheapestPlat ? '<span style="color:' + PLATFORM_COLORS[cheapestPlat] + ';font-size:11px;font-weight:600;">' + cheapestPlat + '</span>' : '';
 
       html +=
         '<div class="rank-row">' +
@@ -1064,7 +1087,6 @@
             dotsHtml +
           '</div>' +
           '<div class="rank-price">' + fmt(avg) + '</div>' +
-          '<div class="rank-cheapest">' + cheapestLabel + '</div>' +
         '</div>';
     });
 
@@ -1072,7 +1094,7 @@
     html += '<div style="display:flex;gap:16px;margin-top:16px;font-size:12px;color:var(--text-dim);justify-content:center;flex-wrap:wrap;">' +
       '<div style="display:flex;align-items:center;gap:6px;"><div style="width:10px;height:10px;border-radius:50%;background:#ffcb3a;"></div> eFleet</div>' +
       '<div style="display:flex;align-items:center;gap:6px;"><div style="width:10px;height:10px;border-radius:50%;background:#4ade80;"></div> TruckPag</div>' +
-      '<div style="display:flex;align-items:center;gap:6px;font-style:italic;">Direita = plataforma mais barata naquele estado</div>' +
+      '<div style="display:flex;align-items:center;gap:6px;"><div style="width:10px;height:10px;border-radius:50%;background:#60a5fa;"></div> Gasola</div>' +
     '</div>';
 
     $("#rankingContainer").innerHTML = html;
@@ -1173,58 +1195,4 @@
     form.addEventListener("submit", async function(ev) {
       ev.preventDefault();
       errEl.textContent = "";
-      const user = (document.getElementById("loginUser").value || "").trim();
-      const pass = document.getElementById("loginPass").value || "";
-      if (!user || !pass) {
-        errEl.textContent = "Informe usuário e senha.";
-        return;
-      }
-      btn.disabled = true;
-      btn.textContent = "Verificando…";
-      try {
-        const h = await sha256Hex(user + ":" + pass);
-        if (h === AUTH_HASH) {
-          markAuthenticated();
-          hideGate();
-          init();
-        } else {
-          errEl.textContent = "Usuário ou senha inválidos.";
-          document.getElementById("loginPass").value = "";
-          document.getElementById("loginPass").focus();
-        }
-      } catch (e) {
-        errEl.textContent = "Erro ao validar: " + (e && e.message || e);
-      } finally {
-        btn.disabled = false;
-        btn.textContent = "Entrar";
-      }
-    });
-
-    const logoutBtn = document.getElementById("logoutBtn");
-    if (logoutBtn) {
-      logoutBtn.addEventListener("click", function() {
-        clearAuth();
-        location.reload();
-      });
-    }
-  }
-
-  function boot() {
-    wireLogin();
-    if (isAuthenticated()) {
-      hideGate();
-      init();
-    } else {
-      showGate();
-    }
-  }
-
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", boot);
-  } else {
-    boot();
-  }
-})();
-</script>
-</body>
-</html>
+      const user = (d
