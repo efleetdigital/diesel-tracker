@@ -621,6 +621,7 @@
   let selectedDate = null;
   let chartInstance = null;
   let periodDays = 30; // default period
+  let viewMode = "date"; // "date" = single day, "period" = averaged over range
 
   // ========================================================================
   // HELPERS
@@ -670,6 +671,35 @@
     return "#4ade80";
   }
 
+  // Returns averaged rows: one { platform, state, price } per (platform, state) combo
+  function getAveragedData() {
+    if (!allData) return [];
+    var key = function(r) { return r.platform + "|" + r.state; };
+    var sums = {};
+    var counts = {};
+    allData.forEach(function(r) {
+      var k = key(r);
+      if (!sums[k]) { sums[k] = 0; counts[k] = 0; }
+      sums[k] += Number(r.price);
+      counts[k]++;
+    });
+    var result = [];
+    Object.keys(sums).forEach(function(k) {
+      var parts = k.split("|");
+      result.push({ platform: parts[0], state: parts[1], price: sums[k] / counts[k] });
+    });
+    return result;
+  }
+
+  // Returns the data rows to use for cards/table/ranking/map based on viewMode
+  function getViewData() {
+    if (viewMode === "period") {
+      return getAveragedData();
+    }
+    // single date mode
+    return allData ? allData.filter(function(r) { return r.date === selectedDate; }) : [];
+  }
+
   // ========================================================================
   // FETCH
   // ========================================================================
@@ -714,17 +744,43 @@
   // RENDER: Summary cards
   // ========================================================================
   function renderCards() {
-    if (!allData || !selectedDate) return;
+    if (!allData) return;
 
-    const national = allData.filter(function(r) {
+    var container = $("#cards");
+    container.innerHTML = "";
+
+    if (viewMode === "period") {
+      // Period mode: show averaged prices
+      var avgData = getAveragedData();
+      var national = avgData.filter(function(r) { return r.state === "Nacional"; });
+
+      // Count days in period for label
+      var allDates = Array.from(new Set(allData.map(function(r) { return r.date; }))).sort();
+      var periodLabel = allDates.length + " dias";
+
+      PLATFORM_ORDER.forEach(function(plat) {
+        var match = national.find(function(r) { return r.platform === plat; });
+        var price = match ? match.price : null;
+
+        var card = document.createElement("div");
+        card.className = "card";
+        card.style.setProperty("--bar", PLATFORM_COLORS[plat] || "#ffcb3a");
+        card.innerHTML =
+          '<div class="label">' + plat + ' <span style="opacity:.6;font-size:10px;">MÉDIA</span></div>' +
+          '<div class="price">' + fmt(price) + '<small> /L</small></div>' +
+          '<div class="meta"><span>Média de ' + periodLabel + '</span><span></span></div>';
+        container.appendChild(card);
+      });
+      return;
+    }
+
+    // Single date mode
+    if (!selectedDate) return;
+    var national = allData.filter(function(r) {
       return r.state === "Nacional" && r.date === selectedDate;
     });
 
-    const container = $("#cards");
-    container.innerHTML = "";
-
     PLATFORM_ORDER.forEach(function(plat) {
-      // ANP: always show the latest available data (weekly), not the selected date
       var cardDate, match;
       if (plat === "ANP") {
         var anpNational = allData.filter(function(r) {
@@ -736,29 +792,28 @@
         match = national.find(function(r) { return r.platform === plat; });
         cardDate = selectedDate;
       }
-      const price = match ? match.price : null;
+      var price = match ? match.price : null;
 
-      // Find previous date for variation
-      const allDates = Array.from(new Set(allData.filter(function(r) {
+      var allDates = Array.from(new Set(allData.filter(function(r) {
         return r.state === "Nacional" && r.platform === plat;
       }).map(function(r) { return r.date; }))).sort();
 
-      const idx = allDates.indexOf(cardDate);
-      const prevDate = idx > 0 ? allDates[idx - 1] : null;
-      const prevMatch = prevDate ? allData.find(function(r) {
+      var idx = allDates.indexOf(cardDate);
+      var prevDate = idx > 0 ? allDates[idx - 1] : null;
+      var prevMatch = prevDate ? allData.find(function(r) {
         return r.date === prevDate && r.platform === plat && r.state === "Nacional";
       }) : null;
 
-      const delta = (price && prevMatch) ? (Number(price) - Number(prevMatch.price)) : null;
-      const deltaPct = (delta != null && prevMatch) ? (delta / Number(prevMatch.price) * 100) : null;
+      var delta = (price && prevMatch) ? (Number(price) - Number(prevMatch.price)) : null;
+      var deltaPct = (delta != null && prevMatch) ? (delta / Number(prevMatch.price) * 100) : null;
 
-      const arrow = delta == null ? "" : delta > 0 ? "▲" : delta < 0 ? "▼" : "●";
-      const cls = delta == null ? "" : delta > 0 ? "up" : delta < 0 ? "down" : "";
-      const deltaTxt = delta == null ? "—" :
+      var arrow = delta == null ? "" : delta > 0 ? "▲" : delta < 0 ? "▼" : "●";
+      var cls = delta == null ? "" : delta > 0 ? "up" : delta < 0 ? "down" : "";
+      var deltaTxt = delta == null ? "—" :
         arrow + " " + fmt(Math.abs(delta)) +
         (deltaPct != null ? " (" + (deltaPct > 0 ? "+" : "") + deltaPct.toFixed(2) + "%)" : "");
 
-      const card = document.createElement("div");
+      var card = document.createElement("div");
       card.className = "card";
       card.style.setProperty("--bar", PLATFORM_COLORS[plat] || "#ffcb3a");
       card.innerHTML =
@@ -882,11 +937,17 @@
   // RENDER: State table (all platforms side by side)
   // ========================================================================
   function renderStateTable() {
-    if (!allData || !selectedDate) return;
+    if (!allData) return;
 
-    var stateData = allData.filter(function(r) {
-      return r.state !== "Nacional" && r.date === selectedDate;
-    });
+    var stateData;
+    if (viewMode === "period") {
+      stateData = getAveragedData().filter(function(r) { return r.state !== "Nacional"; });
+    } else {
+      if (!selectedDate) return;
+      stateData = allData.filter(function(r) {
+        return r.state !== "Nacional" && r.date === selectedDate;
+      });
+    }
 
     var FIXED_PLATFORMS = ["eFleet", "TruckPag", "Gasola"];
 
@@ -968,11 +1029,17 @@
   };
 
   function renderBrazilMap() {
-    if (!allData || !selectedDate) return;
+    if (!allData) return;
 
-    const stateData = allData.filter(function(r) {
-      return r.state !== "Nacional" && r.date === selectedDate;
-    });
+    var stateData;
+    if (viewMode === "period") {
+      stateData = getAveragedData().filter(function(r) { return r.state !== "Nacional"; });
+    } else {
+      if (!selectedDate) return;
+      stateData = allData.filter(function(r) {
+        return r.state !== "Nacional" && r.date === selectedDate;
+      });
+    }
 
     if (stateData.length === 0) {
       $("#mapContainer").innerHTML = '<div id="brazilMap"></div><div id="mapLegend"></div><div class="loading">Sem dados para esta data.</div>';
@@ -1087,11 +1154,17 @@
   // RENDER: Ranking bar chart
   // ========================================================================
   function renderRanking() {
-    if (!allData || !selectedDate) return;
+    if (!allData) return;
 
-    const stateData = allData.filter(function(r) {
-      return r.state !== "Nacional" && r.date === selectedDate;
-    });
+    var stateData;
+    if (viewMode === "period") {
+      stateData = getAveragedData().filter(function(r) { return r.state !== "Nacional"; });
+    } else {
+      if (!selectedDate) return;
+      stateData = allData.filter(function(r) {
+        return r.state !== "Nacional" && r.date === selectedDate;
+      });
+    }
 
     if (stateData.length === 0) {
       $("#rankingContainer").innerHTML = '<div class="loading">Sem dados para esta data.</div>';
@@ -1212,7 +1285,11 @@
       dateInput.max = allDates[allDates.length - 1];
       dateInput.value = selectedDate;
       dateInput.addEventListener("change", function() {
+        viewMode = "date";
         selectedDate = this.value;
+        // deselect period buttons
+        document.querySelectorAll(".period-btn[data-period]").forEach(function(b) { b.classList.remove("active"); });
+        $("#customRange").classList.remove("show");
         renderAll();
       });
 
@@ -1231,6 +1308,7 @@
           }
           customRange.classList.remove("show");
 
+          viewMode = "period";
           periodDays = parseInt(period, 10);
           loadData();
         });
@@ -1244,6 +1322,7 @@
           var end = $("#rangeEnd").value;
           if (!start || !end) return;
           if (start > end) { var tmp = start; start = end; end = tmp; }
+          viewMode = "period";
           loadData(start, end);
         });
       }
