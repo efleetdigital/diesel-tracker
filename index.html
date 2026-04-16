@@ -69,19 +69,20 @@
     gap: 16px;
     flex-wrap: wrap;
   }
-  .date-filter {
+  .filter-bar {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 12px;
+    flex-wrap: wrap;
     font-size: 12px;
   }
-  .date-filter label {
+  .filter-bar label {
     color: var(--text-dim);
     text-transform: uppercase;
     letter-spacing: 0.06em;
     font-weight: 600;
   }
-  .date-filter input[type="date"] {
+  .filter-bar input[type="date"] {
     background: var(--panel-2);
     color: var(--text);
     border: 1px solid var(--border);
@@ -91,9 +92,41 @@
     font-family: inherit;
     cursor: pointer;
   }
-  .date-filter input[type="date"]:focus {
+  .filter-bar input[type="date"]:focus {
     border-color: var(--accent);
     outline: none;
+  }
+  .period-btns {
+    display: flex;
+    gap: 4px;
+  }
+  .period-btn {
+    background: var(--panel-2);
+    color: var(--text-dim);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 5px 10px;
+    font-size: 11px;
+    font-family: inherit;
+    cursor: pointer;
+    font-weight: 600;
+    transition: all 0.15s;
+  }
+  .period-btn:hover { color: var(--text); border-color: var(--accent); }
+  .period-btn.active {
+    background: var(--accent);
+    color: #0b1120;
+    border-color: var(--accent);
+  }
+  .custom-range {
+    display: none;
+    align-items: center;
+    gap: 6px;
+  }
+  .custom-range.show { display: flex; }
+  .custom-range span {
+    color: var(--text-dim);
+    font-size: 11px;
   }
   .status {
     font-size: 12px;
@@ -432,12 +465,13 @@
     position: absolute;
     top: 50%;
     transform: translate(-50%, -50%);
-    width: 12px;
-    height: 12px;
+    width: 14px;
+    height: 14px;
     border-radius: 50%;
-    border: 2px solid;
+    border: 2.5px solid #0b1120;
     z-index: 2;
     cursor: help;
+    box-shadow: 0 0 0 1px rgba(255,255,255,0.3);
   }
   .rank-price {
     width: 70px;
@@ -481,9 +515,22 @@
     <div class="sub">Preços diários por plataforma e por estado · Brasil</div>
   </div>
   <div class="header-right">
-    <div class="date-filter">
-      <label for="dateFilterInput">Data:</label>
+    <div class="filter-bar">
+      <label>Data:</label>
       <input type="date" id="dateFilterInput">
+      <div class="period-btns">
+        <button type="button" class="period-btn" data-period="7">7d</button>
+        <button type="button" class="period-btn" data-period="15">15d</button>
+        <button type="button" class="period-btn active" data-period="30">Mês</button>
+        <button type="button" class="period-btn" data-period="custom">Período</button>
+      </div>
+      <div class="custom-range" id="customRange">
+        <span>De</span>
+        <input type="date" id="rangeStart">
+        <span>até</span>
+        <input type="date" id="rangeEnd">
+        <button type="button" class="period-btn" id="applyRange" style="background:var(--accent);color:#0b1120;border-color:var(--accent);">Aplicar</button>
+      </div>
     </div>
     <div class="status" id="status">
       <div class="dot"></div>
@@ -573,6 +620,7 @@
   let allData = null;
   let selectedDate = null;
   let chartInstance = null;
+  let periodDays = 30; // default period
 
   // ========================================================================
   // HELPERS
@@ -625,16 +673,24 @@
   // ========================================================================
   // FETCH
   // ========================================================================
-  async function fetchPrices() {
-    const since = new Date();
-    since.setDate(since.getDate() - 30);
-    const sinceStr = since.toISOString().slice(0, 10);
+  async function fetchPrices(sinceOverride, untilOverride) {
+    var sinceStr, untilStr;
+    if (sinceOverride) {
+      sinceStr = sinceOverride;
+      untilStr = untilOverride || null;
+    } else {
+      var since = new Date();
+      since.setDate(since.getDate() - periodDays);
+      sinceStr = since.toISOString().slice(0, 10);
+      untilStr = null;
+    }
 
-    const url =
+    var url =
       SUPABASE_URL +
       "/rest/v1/diesel_prices" +
       "?select=date,platform,state,price" +
       "&date=gte." + sinceStr +
+      (untilStr ? "&date=lte." + untilStr : "") +
       "&order=date.asc" +
       "&limit=10000";
 
@@ -1069,13 +1125,14 @@
       var color = getPriceHexColor(avg);
       var platPrices = statePlatformPrices[state] || {};
 
-      // Build dots for eFleet, TruckPag and Gasola
+      // Build dots for eFleet, TruckPag and Gasola — distinct colors that contrast with bar fill
+      var DOT_COLORS = { eFleet: "#ffffff", TruckPag: "#00e5ff", Gasola: "#d580ff" };
       var dotsHtml = '';
       ["eFleet", "TruckPag", "Gasola"].forEach(function(p) {
         if (platPrices[p] != null) {
           var dotPct = Math.max(0, Math.min(100, ((platPrices[p] - minPrice) / range) * 100));
-          var dotColor = PLATFORM_COLORS[p];
-          dotsHtml += '<div class="rank-dot" style="left:' + dotPct + '%;background:' + dotColor + ';border-color:' + dotColor + ';" title="' + p + ': ' + fmt(platPrices[p]) + '"></div>';
+          var dotColor = DOT_COLORS[p];
+          dotsHtml += '<div class="rank-dot" style="left:' + dotPct + '%;background:' + dotColor + ';" title="' + p + ': ' + fmt(platPrices[p]) + '"></div>';
         }
       });
 
@@ -1092,9 +1149,9 @@
 
     // Add legend for dots
     html += '<div style="display:flex;gap:16px;margin-top:16px;font-size:12px;color:var(--text-dim);justify-content:center;flex-wrap:wrap;">' +
-      '<div style="display:flex;align-items:center;gap:6px;"><div style="width:10px;height:10px;border-radius:50%;background:#ffcb3a;"></div> eFleet</div>' +
-      '<div style="display:flex;align-items:center;gap:6px;"><div style="width:10px;height:10px;border-radius:50%;background:#4ade80;"></div> TruckPag</div>' +
-      '<div style="display:flex;align-items:center;gap:6px;"><div style="width:10px;height:10px;border-radius:50%;background:#60a5fa;"></div> Gasola</div>' +
+      '<div style="display:flex;align-items:center;gap:6px;"><div style="width:10px;height:10px;border-radius:50%;background:#ffffff;border:1.5px solid #888;"></div> eFleet</div>' +
+      '<div style="display:flex;align-items:center;gap:6px;"><div style="width:10px;height:10px;border-radius:50%;background:#00e5ff;"></div> TruckPag</div>' +
+      '<div style="display:flex;align-items:center;gap:6px;"><div style="width:10px;height:10px;border-radius:50%;background:#d580ff;"></div> Gasola</div>' +
     '</div>';
 
     $("#rankingContainer").innerHTML = html;
@@ -1103,40 +1160,96 @@
   // ========================================================================
   // INIT & EVENT HANDLERS
   // ========================================================================
+  function renderAll() {
+    renderCards();
+    renderChart();
+    renderStateTable();
+    renderBrazilMap();
+    renderRanking();
+  }
+
+  async function loadData(sinceOverride, untilOverride) {
+    try {
+      setStatus(true, "carregando dados…");
+      var data = await fetchPrices(sinceOverride, untilOverride);
+      if (!data || data.length === 0) {
+        showError("Nenhum registro encontrado para o período selecionado.");
+        return;
+      }
+      allData = data;
+
+      var allDates = Array.from(new Set(data.map(function(r) { return r.date; }))).sort();
+      selectedDate = allDates[allDates.length - 1];
+
+      var dateInput = $("#dateFilterInput");
+      dateInput.min = allDates[0];
+      dateInput.max = allDates[allDates.length - 1];
+      dateInput.value = selectedDate;
+
+      setStatus(true, data.length + " registros · conectado");
+      renderAll();
+    } catch (err) {
+      showError((err && err.message) || String(err));
+    }
+  }
+
   async function init() {
     try {
       setStatus(true, "conectando ao Supabase…");
-      const data = await fetchPrices();
+      var data = await fetchPrices();
       if (!data || data.length === 0) {
         showError("Nenhum registro encontrado nos últimos 30 dias.");
         return;
       }
       allData = data;
 
-      // Get all available dates and select the most recent
-      const allDates = Array.from(new Set(data.map(function(r) { return r.date; }))).sort();
+      var allDates = Array.from(new Set(data.map(function(r) { return r.date; }))).sort();
       selectedDate = allDates[allDates.length - 1];
 
       // Populate date input
-      const dateInput = $("#dateFilterInput");
+      var dateInput = $("#dateFilterInput");
       dateInput.min = allDates[0];
       dateInput.max = allDates[allDates.length - 1];
       dateInput.value = selectedDate;
       dateInput.addEventListener("change", function() {
         selectedDate = this.value;
-        renderCards();
-        renderChart();
-        renderStateTable();
-        renderBrazilMap();
-        renderRanking();
+        renderAll();
       });
 
+      // Period buttons
+      var periodBtns = document.querySelectorAll(".period-btn[data-period]");
+      periodBtns.forEach(function(btn) {
+        btn.addEventListener("click", function() {
+          var period = this.getAttribute("data-period");
+          periodBtns.forEach(function(b) { b.classList.remove("active"); });
+          this.classList.add("active");
+
+          var customRange = $("#customRange");
+          if (period === "custom") {
+            customRange.classList.add("show");
+            return; // wait for Apply click
+          }
+          customRange.classList.remove("show");
+
+          periodDays = parseInt(period, 10);
+          loadData();
+        });
+      });
+
+      // Custom range apply
+      var applyBtn = $("#applyRange");
+      if (applyBtn) {
+        applyBtn.addEventListener("click", function() {
+          var start = $("#rangeStart").value;
+          var end = $("#rangeEnd").value;
+          if (!start || !end) return;
+          if (start > end) { var tmp = start; start = end; end = tmp; }
+          loadData(start, end);
+        });
+      }
+
       setStatus(true, data.length + " registros · conectado");
-      renderCards();
-      renderChart();
-      renderStateTable();
-      renderBrazilMap();
-      renderRanking();
+      renderAll();
     } catch (err) {
       showError((err && err.message) || String(err));
     }
