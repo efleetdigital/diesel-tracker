@@ -519,9 +519,10 @@
       <label>Data:</label>
       <input type="date" id="dateFilterInput">
       <div class="period-btns">
+        <button type="button" class="period-btn active" data-period="day">Dia</button>
         <button type="button" class="period-btn" data-period="7">7d</button>
         <button type="button" class="period-btn" data-period="15">15d</button>
-        <button type="button" class="period-btn active" data-period="30">Mês</button>
+        <button type="button" class="period-btn" data-period="30">Mês</button>
         <button type="button" class="period-btn" data-period="custom">Período</button>
       </div>
       <div class="custom-range" id="customRange">
@@ -1307,6 +1308,13 @@
             return; // wait for Apply click
           }
           customRange.classList.remove("show");
+
+          if (period === "day") {
+            viewMode = "date";
+            periodDays = 30;
+            loadData();
+            return;
+          }
 
           viewMode = "period";
           periodDays = parseInt(period, 10);
