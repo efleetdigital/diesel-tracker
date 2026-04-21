@@ -716,29 +716,45 @@
       untilStr = null;
     }
 
-    var url =
+    var baseUrl =
       SUPABASE_URL +
       "/rest/v1/diesel_prices" +
       "?select=date,platform,state,price" +
       "&date=gte." + sinceStr +
       (untilStr ? "&date=lte." + untilStr : "") +
-      "&order=date.asc" +
-      "&limit=10000";
+      "&order=date.asc";
 
-    const res = await fetch(url, {
-      method: "GET",
-      headers: {
-        "apikey": SUPABASE_ANON_KEY,
-        "Authorization": "Bearer " + SUPABASE_ANON_KEY,
-        "Accept": "application/json"
+    var allResults = [];
+    var pageSize = 1000;
+    var offset = 0;
+    var hasMore = true;
+
+    while (hasMore) {
+      var url = baseUrl + "&limit=" + pageSize + "&offset=" + offset;
+      const res = await fetch(url, {
+        method: "GET",
+        headers: {
+          "apikey": SUPABASE_ANON_KEY,
+          "Authorization": "Bearer " + SUPABASE_ANON_KEY,
+          "Accept": "application/json"
+        }
+      });
+
+      if (!res.ok) {
+        const body = await res.text();
+        throw new Error("HTTP " + res.status + " — " + body.slice(0, 200));
       }
-    });
 
-    if (!res.ok) {
-      const body = await res.text();
-      throw new Error("HTTP " + res.status + " — " + body.slice(0, 200));
+      var page = await res.json();
+      allResults = allResults.concat(page);
+      if (page.length < pageSize) {
+        hasMore = false;
+      } else {
+        offset += pageSize;
+      }
     }
-    return await res.json();
+
+    return allResults;
   }
 
   // ========================================================================
